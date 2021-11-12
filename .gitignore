@@ -1,0 +1,13 @@
+src/*.*/
+src/main/mr-tmp/
+src/mrtmp.*
+src/824-mrinput-*.txt
+src/main/diff.out
+src/mapreduce/x.txt
+src/pbservice/x.txt
+src/kvpaxos/x.txt
+src/*.so
+src/main/mrcoordinator
+src/main/mrsequential
+src/main/mrworker
+.idea/
