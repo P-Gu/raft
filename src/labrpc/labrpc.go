@@ -6,12 +6,6 @@ package labrpc
 // simulates a network that can lose requests, lose replies,
 // delay messages, and entirely disconnect particular hosts.
 //
-// we will use the original labrpc.go to test your code for grading.
-// so, while you can modify this code to help you debug, please
-// test against the original before submitting.
-//
-// adapted from Go net/rpc/server.go.
-//
 // sends labgob-encoded values to ensure that RPCs
 // don't include references to program objects.
 //
@@ -40,6 +34,7 @@ package labrpc
 // as pointers, so that their types exactly match the types of the arguments
 // to Call().
 //
+// srv: server; svc: service
 // srv := MakeServer()
 // srv.AddService(svc) -- a server can have multiple services, e.g. Raft and k/v
 //   pass srv to net.AddServer()
@@ -49,7 +44,7 @@ package labrpc
 //   pass svc to srv.AddService()
 //
 
-import "6.824/labgob"
+import "kvstore/labgob"
 import "bytes"
 import "reflect"
 import "sync"

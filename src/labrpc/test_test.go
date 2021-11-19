@@ -75,7 +75,7 @@ func TestBasic(t *testing.T) {
 	e := rn.MakeEnd("end1-99")
 
 	js := &JunkServer{}
-	svc := MakeService(js)
+	svc := MakeService(js) // pass a pointer to a struct to `MakeService`, to create a new service
 
 	rs := MakeServer()
 	rs.AddService(svc)

@@ -7,10 +7,10 @@ package raft
 //
 // rf = Make(...)
 //   create a new Raft server.
-// rf.Start(command interface{}) (index, term, isleader)
+// rf.Start(command interface{}) (index, Term, isleader)
 //   start agreement on a new log entry
-// rf.GetState() (term, isLeader)
-//   ask a Raft for its current term, and whether it thinks it is leader
+// rf.GetState() (Term, isLeader)
+//   ask a Raft for its current Term, and whether it thinks it is leader
 // ApplyMsg
 //   each time a new entry is committed to the log, each Raft peer
 //   should send an ApplyMsg to the service (or tester)
@@ -18,17 +18,59 @@ package raft
 //
 
 import (
-//	"bytes"
+	"bytes"
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
-//	"6.824/labgob"
-	"6.824/labrpc"
+	"kvstore/labgob"
+	"kvstore/labrpc"
 )
 
+type LogEntry struct {
+	term int
+	command interface{}
+}
 
 //
-// as each Raft peer becomes aware that successive log entries are
+// example RequestVote RPC arguments structure.
+// field names must start with capital letters!
+//
+type RequestVoteArgs struct {
+	// Your data here (2A, 2B).
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
+}
+
+//
+// example RequestVote RPC reply structure.
+// field names must start with capital letters!
+//
+type RequestVoteReply struct {
+	// Your data here (2A).
+	Term        int
+	VoteGranted bool
+}
+
+
+type AppendEntriesArgs struct {
+	Term         int;
+	LeadId       int;
+	PrevLogIndex int;
+	PrevLogTerm  LogEntry;
+	Entries      [] LogEntry;
+	LeaderCommit int;
+}
+
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+}
+//
+// as each Raft peer becomes aware that successive log Entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make(). set
 // CommandValid to true to indicate that the ApplyMsg contains a newly
@@ -43,11 +85,11 @@ type ApplyMsg struct {
 	Command      interface{}
 	CommandIndex int
 
-	// For 2D:
-	SnapshotValid bool
-	Snapshot      []byte
-	SnapshotTerm  int
-	SnapshotIndex int
+	//// For 2D:
+	//SnapshotValid bool
+	//Snapshot      []byte
+	//SnapshotTerm  int
+	//SnapshotIndex int
 }
 
 //
@@ -60,19 +102,46 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
+
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+
+	// persistent state
+	currentTerm int
+	votedFor int
+	logs []LogEntry
+
+	// volatile state on all servers
+	commitIndex int
+	lastApplied int
+
+	// volatile state on leaders
+	nextIndex []int
+	matchIndex []int
+
+	// other
+	state  string// "leader" "candidate" "follower"
+	applyCh chan ApplyMsg
+
 
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	rf.mu.Lock()
+	term = rf.currentTerm
+	if rf.state == "leader"{
+		isleader = true
+	} else {
+		isleader = false
+	}
+	rf.mu.Unlock()
+
 	return term, isleader
 }
 
@@ -83,13 +152,13 @@ func (rf *Raft) GetState() (int, bool) {
 //
 func (rf *Raft) persist() {
 	// Your code here (2C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	if e.Encode(rf.currentTerm) != nil || e.Encode(rf.votedFor) != nil || e.Encode(rf.logs) != nil {
+		panic("failed to persist")
+	}
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 
@@ -102,17 +171,18 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (2C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var tmpCurrentTerm, tmpVotedFor int
+	var tmpLogs []LogEntry
+	if d.Decode(&tmpCurrentTerm) != nil ||
+	   d.Decode(&tmpVotedFor) != nil || d.Decode(&tmpLogs) != nil{
+	  panic("failed to readPersist")
+	} else {
+	  rf.currentTerm = tmpCurrentTerm
+	  rf.votedFor = tmpVotedFor
+	  rf.logs = tmpLogs
+	}
 }
 
 
@@ -136,42 +206,65 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
+func (rf *Raft) getLastIndex() int {
+	return len(rf.logs) - 1
 }
 
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
+func (rf *Raft) getLastTerm() int {
+	return rf.logs[rf.getLastIndex()].term
 }
+
+func (rf * Raft) getLastIndexAndTerm() (int, int) {
+	lastIndex := rf.getLastIndex()
+	lastTerm := rf.logs[rf.getLastIndex()].term
+	return lastIndex, lastTerm
+}
+
+// thread-safe
+func (rf * Raft) ValidateLatest(lastTerm int, lastIndex int) bool{
+	if lastTerm > rf.currentTerm || (lastTerm == rf.currentTerm && lastIndex >= len(rf.logs)){
+		return true
+	} else {
+		return false
+	}
+}
+
+func (rf * Raft) getElectionTimeout() time.Duration {
+	return time.Duration(150 + rand.Intn(150)) * time.Millisecond
+}
+
 
 //
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	reply.Term = rf.currentTerm
+	if args.Term < rf.currentTerm{
+		reply.VoteGranted = false
+		return
+	}
+
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		// check if the candidate's log is at least as up-to-date as receiver's log
+		lastIndex, lastTerm := rf.getLastIndexAndTerm()
+		if rf.ValidateLatest(lastIndex, lastTerm){
+			reply.VoteGranted = true
+		} else {
+			reply.VoteGranted = false
+		}
+	}
+	rf.mu.Unlock()
 }
 
 //
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
 // the types of the args and reply passed to Call() must be
 // the same as the types of the arguments declared in the
 // handler function (including whether they are pointers).
 //
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
 // Call() sends a request and waits for a reply. If a reply arrives
 // within a timeout interval, Call() returns true; otherwise
 // Call() returns false. Thus Call() may not return for a while.
@@ -190,6 +283,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
@@ -206,7 +300,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 //
 // the first return value is the index that the command will appear at
 // if it's ever committed. the second return value is the current
-// term. the third return value is true if this server believes it is
+// Term. the third return value is true if this server believes it is
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
@@ -281,4 +375,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
+}
+
+
+
+func (rf * Raft) AppendEntries(args AppendEntriesArgs, reply * AppendEntriesReply){
+
+}
+
+// change raft server's state
+func (rf *Raft) transitionRole(){
+
 }
