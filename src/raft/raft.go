@@ -411,7 +411,7 @@ func (rf * Raft) broadcastAppendEntries(){
 	rf.mu.Lock()
 	me := rf.me
 	args := &AppendEntriesArgs{rf.currentTerm, rf.me, -1,
-		LogEntry{}, []LogEntry, rf.commitIndex}
+		LogEntry{}, []LogEntry{}, rf.commitIndex}
 	rf.mu.Unlock()
 
 	for i:=0;i<len(rf.peers);i+=1{
