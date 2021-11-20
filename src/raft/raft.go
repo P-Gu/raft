@@ -102,32 +102,24 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
-
 	// persistent state
 	currentTerm int
 	votedFor int
 	logs []LogEntry
-
 	// volatile state on all servers
 	commitIndex int
 	lastApplied int
-
 	// volatile state on leaders
 	nextIndex []int
 	matchIndex []int
 
 	// other
 	state  string// "leader" "candidate" "follower"
-	applyCh chan ApplyMsg
-	heartbeat time.Time
-	voteCnt int
+	applyCh         chan ApplyMsg
+	electionTimeout time.Time // last event time
+	heartbeatTimeout time.Duration // the time interval to send heartbeats
+	voteCnt         int
 	majorityCnt int
-
-
 }
 
 // return currentTerm and whether this server
@@ -233,11 +225,11 @@ func (rf * Raft) ValidateLatest(lastTerm int, lastIndex int) bool{
 }
 
 func (rf * Raft) getElectionTimeout() time.Duration {
-	return time.Duration(150 + rand.Intn(150)) * time.Millisecond
+	return time.Duration(150 + rand.Intn(150))
 }
 
 func (rf *Raft) getHeartbeatTime() time.Time{
-	return rf.heartbeat
+	return rf.electionTimeout
 }
 
 
@@ -247,6 +239,8 @@ func (rf *Raft) getHeartbeatTime() time.Time{
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm{
 		reply.VoteGranted = false
@@ -258,11 +252,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastIndex, lastTerm := rf.getLastIndexAndTerm()
 		if rf.ValidateLatest(lastIndex, lastTerm){
 			reply.VoteGranted = true
+			rf.electionTimeout = time.Now()
 		} else {
 			reply.VoteGranted = false
 		}
 	}
-	rf.mu.Unlock()
+
 }
 
 //
@@ -297,9 +292,17 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	}
 
 	// get the reply from peer
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if rf.state != "candidate" || reply.Term < rf.currentTerm || !reply.VoteGranted {
 		return
 	}
+
+	if reply.Term > rf.currentTerm{
+		rf.becomeFollower(reply.Term)
+		return
+	}
+
 
 	if reply.VoteGranted{
 		rf.voteCnt += 1
@@ -384,7 +387,6 @@ func (rf *Raft) becomeCandidate(){
 	}
 
 	rf.state = "candiate"
-
 }
 
 func (rf * Raft) broadcastRequestVote(){
@@ -405,40 +407,63 @@ func (rf * Raft) broadcastRequestVote(){
 	}
 }
 
+func (rf * Raft) broadcastAppendEntries(){
+	rf.mu.Lock()
+	me := rf.me
+	args := &AppendEntriesArgs{rf.currentTerm, rf.me, -1,
+		LogEntry{}, []LogEntry, rf.commitIndex}
+	rf.mu.Unlock()
 
+	for i:=0;i<len(rf.peers);i+=1{
+		if i!= me{
+			reply := &AppendEntriesReply{}
+			go rf.sendAppendEntries(i, args, reply)
+		}
+	}
 
+}
 func (rf * Raft) startElection() {
 	rf.mu.Lock()
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
-	rf.heartbeat = time.Now()
+	rf.electionTimeout = time.Now()
 	rf.mu.Unlock()
 
-	rf.broadcastRequestVote()
+	go rf.broadcastRequestVote()
 }
 
-// The ticker go routine starts a new election if this peer hasn't received
-// heartsbeats recently.
-func (rf *Raft) ticker() {
+func (rf * Raft) leaderHeartBeatTicker(){
 	for rf.killed() == false {
-
-		// Your code here to check if a leader election should
-		// be started and to randomize sleeping time using
-		// time.Sleep().
-		electionTimeout := rf.getElectionTimeout()
-		time.Sleep(electionTimeout)
-
-		// how long since the last heartbeat
-		duration := time.Since(rf.getHeartbeatTime())
-		if duration > electionTimeout { // note that you should only reset hearbeat timeout upon receiving RPC from current leader, not from other peers
-			rf.becomeCandidate()
-			rf.startElection()
-		} else {
-			continue
+		select {
+		case <-time.After(rf.heartbeatTimeout):
+			go rf.broadcastAppendEntries()
 		}
-
 	}
 }
+
+func (rf *Raft) candiateElectionTicker(){
+	for rf.killed() == false {
+		electionTimeout := rf.getElectionTimeout()
+
+		select {
+		case <-time.After(electionTimeout * time.Millisecond):
+			{
+				rf.mu.Lock()
+				duration := time.Since(rf.getHeartbeatTime())
+				if duration > electionTimeout { // note that you should only reset hearbeat timeout upon receiving RPC from current leader, not from other peers
+					rf.becomeCandidate()
+					go rf.startElection()
+				} else {
+					continue
+				}
+
+				rf.mu.Unlock()
+			}
+		}
+	}
+
+}
+
 
 //
 // create a Raft server. the ports
@@ -458,18 +483,27 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	// initialize from state persisted before a crash
+	// persistent state
 	rf.readPersist(persister.ReadRaftState())
+	//currentTerm int
+	//votedFor int
+	//logs []LogEntry
 
-	// Your initialization code here (2A, 2B, 2C).
-	rf.applyCh = applyCh
+	// volatile state on all servers
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+	// volatile state on leaders
 	lastIndex := rf.getLastIndex()
 	for i:=0;i<len(rf.peers); i+=1{
 		rf.nextIndex[i] = lastIndex + 1
 		rf.matchIndex[i] = 0
 	}
+
+	// other
+	rf.state = "follower"
+	rf.applyCh = applyCh
+	rf.electionTimeout = time.Now()
+	rf.votedFor = -1
 
 	numPeers := len(rf.peers)
 	if numPeers % 2 == 0{
@@ -478,25 +512,41 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		rf.majorityCnt = (numPeers + 1) / 2
 	}
 
-	rf.state = "follower"
-	rf.heartbeat = time.Now()
 	// start ticker goroutine to start elections
-	go rf.ticker()
-
+	go rf.leaderHeartBeatTicker()
+	go rf.candiateElectionTicker()
 
 	return rf
 }
 
+func (rf * Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply * AppendEntriesReply) {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
+	if !ok {
+		return
+	}
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if reply.Term > rf.currentTerm{
+		rf.becomeFollower(reply.Term)
+	}
+
+}
 
 func (rf * Raft) AppendEntries(args AppendEntriesArgs, reply * AppendEntriesReply){
 	if len(args.Entries) != 0{
 		panic("Currently AppendEntries doesnot support non-empty entries")
 	}
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
 	}
+
+	rf.electionTimeout = time.Now()
 
 	reply.Success = true
 	return
