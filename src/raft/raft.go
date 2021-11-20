@@ -123,13 +123,16 @@ type Raft struct {
 	// other
 	state  string// "leader" "candidate" "follower"
 	applyCh chan ApplyMsg
+	heartbeat time.Time
+	voteCnt int
+	majorityCnt int
 
 
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
-func (rf *Raft) GetState() (int, bool) {
+func (rf *Raft) getState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
@@ -233,6 +236,10 @@ func (rf * Raft) getElectionTimeout() time.Duration {
 	return time.Duration(150 + rand.Intn(150)) * time.Millisecond
 }
 
+func (rf *Raft) getHeartbeatTime() time.Time{
+	return rf.heartbeat
+}
+
 
 //
 // example RequestVote RPC handler.
@@ -282,10 +289,24 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+
+	if !ok {
+		return
+	}
+
+	// get the reply from peer
+	if rf.state != "candidate" || reply.Term < rf.currentTerm || !reply.VoteGranted {
+		return
+	}
+
+	if reply.VoteGranted{
+		rf.voteCnt += 1
+		if rf.voteCnt >= rf.majorityCnt{
+			rf.becomeLeader()
+		}
+	}
 }
 
 
@@ -335,6 +356,67 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf * Raft) becomeLeader(){
+	if rf.state != "candidate"{
+		panic("non-candidate cannot be elected as leader")
+	}
+	rf.state = "leader"
+}
+
+func (rf * Raft) becomeFollower(term int){
+	if rf.state == "follower" {
+		return
+	}
+
+	if term <= rf.currentTerm {
+		panic("only greater term can override currentTerm")
+		return
+	}
+
+	rf.currentTerm = term
+	rf.state = "follower"
+	rf.votedFor = -1
+}
+
+func (rf *Raft) becomeCandidate(){
+	if rf.state == "leader"{
+		return
+	}
+
+	rf.state = "candiate"
+
+}
+
+func (rf * Raft) broadcastRequestVote(){
+	rf.mu.Lock()
+	currentTerm := rf.currentTerm
+	me := rf.me
+	lastIndex := rf.getLastIndex()
+	lastTerm := rf.getLastTerm()
+	rf.mu.Unlock()
+
+	var args = &RequestVoteArgs{currentTerm, me, lastIndex, lastTerm}
+
+	for i:=0; i<len(rf.peers); i+=1 {
+		if i != me{
+			var reply = &RequestVoteReply{}
+			go rf.sendRequestVote(i, args, reply)
+		}
+	}
+}
+
+
+
+func (rf * Raft) startElection() {
+	rf.mu.Lock()
+	rf.currentTerm += 1
+	rf.votedFor = rf.me
+	rf.heartbeat = time.Now()
+	rf.mu.Unlock()
+
+	rf.broadcastRequestVote()
+}
+
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
@@ -343,12 +425,23 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		electionTimeout := rf.getElectionTimeout()
+		time.Sleep(electionTimeout)
+
+		// how long since the last heartbeat
+		duration := time.Since(rf.getHeartbeatTime())
+		if duration > electionTimeout { // note that you should only reset hearbeat timeout upon receiving RPC from current leader, not from other peers
+			rf.becomeCandidate()
+			rf.startElection()
+		} else {
+			continue
+		}
 
 	}
 }
 
 //
-// the service or tester wants to create a Raft server. the ports
+// create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
 // have the same order. persister is a place for this server to
@@ -365,11 +458,28 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	// Your initialization code here (2A, 2B, 2C).
-
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	// Your initialization code here (2A, 2B, 2C).
+	rf.applyCh = applyCh
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	lastIndex := rf.getLastIndex()
+	for i:=0;i<len(rf.peers); i+=1{
+		rf.nextIndex[i] = lastIndex + 1
+		rf.matchIndex[i] = 0
+	}
+
+	numPeers := len(rf.peers)
+	if numPeers % 2 == 0{
+		rf.majorityCnt = numPeers / 2 + 1
+	} else {
+		rf.majorityCnt = (numPeers + 1) / 2
+	}
+
+	rf.state = "follower"
+	rf.heartbeat = time.Now()
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
@@ -380,10 +490,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 func (rf * Raft) AppendEntries(args AppendEntriesArgs, reply * AppendEntriesReply){
+	if len(args.Entries) != 0{
+		panic("Currently AppendEntries doesnot support non-empty entries")
+	}
+	if args.Term < rf.currentTerm {
+		reply.Success = false
+		return
+	}
 
+	reply.Success = true
+	return
 }
 
-// change raft server's state
-func (rf *Raft) transitionRole(){
-
-}
