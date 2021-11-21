@@ -144,7 +144,7 @@ func TestBasicAgree2B(t *testing.T) {
 
 //
 // check, based on counting bytes of RPCs, that
-// each command is sent to each peer just once.
+// each Command is sent to each peer just once.
 //
 func TestRPCBytes2B(t *testing.T) {
 	servers := 3
@@ -707,10 +707,10 @@ func TestPersist32C(t *testing.T) {
 
 //
 // Test the scenarios described in Figure 8 of the extended Raft paper. Each
-// iteration asks a leader, if there is one, to insert a command in the Raft
+// iteration asks a leader, if there is one, to insert a Command in the Raft
 // log.  If there is a leader, that leader will fail quickly with a high
-// probability (perhaps without committing the command), or crash after a while
-// with low probability (most likey committing the command).  If the number of
+// probability (perhaps without committing the Command), or crash after a while
+// with low probability (most likey committing the Command).  If the number of
 // alive servers isn't enough to form a majority, perhaps start a new server.
 // The leader in a new Term may try to finish replicating log Entries that
 // haven't been committed yet.
@@ -903,7 +903,7 @@ func internalChurn(t *testing.T, unreliable bool) {
 								values = append(values, x)
 							}
 						} else {
-							cfg.t.Fatalf("wrong command type")
+							cfg.t.Fatalf("wrong Command type")
 						}
 						break
 					}

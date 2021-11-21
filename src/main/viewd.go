@@ -5,7 +5,7 @@ package main
 //
 
 import "time"
-import "6.824/viewservice"
+import "kvstore/viewservice"
 import "os"
 import "fmt"
 

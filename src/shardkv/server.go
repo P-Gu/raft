@@ -1,10 +1,10 @@
 package shardkv
 
 
-import "6.824/labrpc"
-import "6.824/raft"
+import "kvstore/labrpc"
+import "kvstore/raft"
 import "sync"
-import "6.824/labgob"
+import "kvstore/labgob"
 
 
 

@@ -1,10 +1,10 @@
 package shardctrler
 
 
-import "6.824/raft"
-import "6.824/labrpc"
+import "kvstore/raft"
+import "kvstore/labrpc"
 import "sync"
-import "6.824/labgob"
+import "kvstore/labgob"
 
 
 type ShardCtrler struct {

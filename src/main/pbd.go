@@ -5,7 +5,7 @@ package main
 //
 
 import "time"
-import "6.824/pbservice"
+import "kvstore/pbservice"
 import "os"
 import "fmt"
 
