@@ -301,7 +301,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	DPrintf("[node ]: receives vote reply from node %d: [term=%d, voteGranted=%v]", server, reply.Term, reply.VoteGranted)
+	DPrintf("[node %d]: receives vote reply from node %d: [term=%d, voteGranted=%v]",
+		rf.me, server, reply.Term, reply.VoteGranted)
 	if !ok {
 		DPrintf("sendRequestVote RPC failed")
 		return
@@ -325,13 +326,19 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	if reply.VoteGranted{
 		DPrintf("[node %d]: vote ++ from node %d", rf.me, server)
 		rf.voteCnt += 1
+
 		if rf.voteCnt >= rf.majorityCnt{
+			DPrintf("[node %d]: voteCnt %d >= majorityCnt %d", rf.me, rf.voteCnt, rf.majorityCnt)
 			rf.becomeLeader()
 			return
+		} else {
+			DPrintf("[node %d]: voteCnt %d < majorityCnt %d", rf.me, rf.voteCnt, rf.majorityCnt)
 		}
+	} else {
+		DPrintf("[node %d]: doesnot know how to deal with the vote reply", rf.me)
 	}
 
-	DPrintf("[node %d]: doesnot know how to deal with the vote reply", rf.me)
+
 }
 
 
