@@ -548,6 +548,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// persistent state
 	rf.currentTerm = 0
 	rf.votedFor = -1
+	rf.voteCnt = 0
 	rf.logs = append(rf.logs, LogEntry{Term: 0})
 	// currentTerm=0, votedFOr=-1, logs: [{0 <nil>}]
 	//DPrintf("currentTerm=%d, votedFOr=%d, logs: %v", rf.currentTerm, rf.votedFor, rf.logs)
@@ -557,7 +558,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	// volatile state on leaders
-
 
 	// other
 	rf.state = "follower"
