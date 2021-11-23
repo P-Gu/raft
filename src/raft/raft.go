@@ -238,11 +238,11 @@ func (rf * Raft) ValidateLatest(lastTerm int, lastIndex int) bool{
 }
 
 func (rf * Raft) getElectionTimeout() time.Duration {
-	return time.Duration(300 + rand.Intn(200))
+	return time.Duration(200 + rand.Intn(250))
 }
 
 func (rf *Raft) getHeartbeatTimeout() time.Duration{
-	return time.Duration(100)
+	return time.Duration(80)
 }
 
 
@@ -251,6 +251,8 @@ func (rf *Raft) getHeartbeatTimeout() time.Duration{
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	DPrintf("[node %d]: receives Vote request from node %d: [term=%d, lastLogIndex=%d]", rf.me, args.CandidateId,
+		args.Term, args.LastLogIndex)
 	rf.mu.Lock()
 	lockVersion := rf.lockVersion
 	DPrintf("[node %d]: RequestVote() acquires lock %d", rf.me, lockVersion)
@@ -322,23 +324,28 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) {
+	t1 := time.Now()
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	DPrintf("[node %d]: receives vote reply from node %d: [term=%d, voteGranted=%v]",
-		rf.me, server, reply.Term, reply.VoteGranted)
+	duration:= time.Since(t1)
+
+	
 	if !ok {
 		DPrintf("sendRequestVote RPC failed")
 		return
 	}
+
+	DPrintf("[node %d]: [%v ms] of RPC call", rf.me, duration)
+	DPrintf("[node %d]: receives vote reply from node %d: [term=%d, voteGranted=%v]",
+		rf.me, server, reply.Term, reply.VoteGranted)
 
 	// get the reply from peer
 	rf.mu.Lock()
 	lockVersion := rf.lockVersion
 	DPrintf("[node %d]: sendRequestVote() acquires lock %d", rf.me, lockVersion)
 	rf.lockVersion ++
-
 	defer DPrintf("[node %d]: sendRequestVote() releases lock %d", rf.me, lockVersion)
-
 	defer rf.mu.Unlock()
+	
 	if rf.state != "candidate" || reply.Term < rf.currentTerm || !reply.VoteGranted {
 		DPrintf("[node %d]: cannot accept this vote: [state=%v, reply.Term=%d, currentTerm=%d, reply.VoteGranted=%v]",
 			rf.me, rf.state, reply.Term, rf.currentTerm, reply.VoteGranted)
@@ -351,6 +358,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		return
 	}
 
+	// reply.Term == rf.currentTerm
 	if reply.VoteGranted{
 		DPrintf("[node %d]: vote ++ from node %d", rf.me, server)
 		rf.voteCnt += 1
@@ -409,6 +417,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+
 }
 
 func (rf *Raft) killed() bool {
@@ -436,12 +445,12 @@ func (rf * Raft) becomeLeader(){
 	// TODO: bug: you can never stop it even if me is not leader any more
 
 	go rf.leaderHeartBeatTicker() // periodically send heartbeats to followers
-	DPrintf("[node %d]: becomeLeader created a go routine", rf.me)
+	// DPrintf("[node %d]: becomeLeader created a go routine", rf.me)
 }
 
 // lock must be held before calling this function
 func (rf * Raft) becomeFollower(term int){
-	if term <= rf.currentTerm {
+	if term < rf.currentTerm {
 		panic("only greater Term can override currentTerm")
 		return
 	}
@@ -467,6 +476,10 @@ func (rf *Raft) becomeCandidate(){
 
 func (rf * Raft) broadcastRequestVote(){
 	rf.mu.Lock()
+	lockVersion := rf.lockVersion
+	DPrintf("[node %d]: broadcastRequestVote() acquires lock %d", rf.me, lockVersion)
+	rf.lockVersion ++
+	defer DPrintf("[node %d]: broadcastRequestVote() releases lock %d", rf.me, lockVersion)
 	defer rf.mu.Unlock()
 
 	lastIndex, lastTerm := rf.getLastIndexAndTerm()
@@ -479,7 +492,7 @@ func (rf * Raft) broadcastRequestVote(){
 			var reply = &RequestVoteReply{}
 			// race
 			go rf.sendRequestVote(i, args, reply)
-			DPrintf("[node %d]: sendRequestVote created a go routine", rf.me)
+			// DPrintf("[node %d]: sendRequestVote created a go routine", rf.me)
 			DPrintf("[node %d]: sendRequestVote to node %d", rf.me, i)
 		}
 	}
@@ -488,21 +501,29 @@ func (rf * Raft) broadcastRequestVote(){
 func (rf * Raft) broadcastAppendEntries(){
 	DPrintf("[node %d]: broadcasting heartbeats ...", rf.me)
 	rf.mu.Lock()
+	lockVersion := rf.lockVersion
+	DPrintf("[node %d]: broadcastAppendEntries() acquires lock %d", rf.me, lockVersion)
+	rf.lockVersion ++
+	defer DPrintf("[node %d]: broadcastAppendEntries() releases lock %d", rf.me, lockVersion)
 	defer rf.mu.Unlock()
 
 	for i:=0;i<len(rf.peers);i+=1{
 		if i!= rf.me{
 			args := &AppendEntriesArgs{rf.currentTerm, rf.me, -1,
 				LogEntry{}, []LogEntry{}, rf.commitIndex}
-			reply := &AppendEntriesReply{}
+			reply := &AppendEntriesReply{-1, false}
 			go rf.sendAppendEntries(i, args, reply)
-			DPrintf("[node %d]: broadcastAppendEntries created a go routine", rf.me)
+			// DPrintf("[node %d]: broadcastAppendEntries created a go routine", rf.me)
 		}
 	}
 
 }
 func (rf * Raft) startElection() {
 	rf.mu.Lock()
+	lockVersion := rf.lockVersion
+	DPrintf("[node %d]: startElection() acquires lock %d", rf.me, lockVersion)
+	rf.lockVersion ++
+
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.voteCnt = 1
@@ -510,58 +531,66 @@ func (rf * Raft) startElection() {
 
 	DPrintf("[node %d]: startElection: current Term=%d, votedFor=%d", rf.me, rf.currentTerm, rf.votedFor)
 	rf.mu.Unlock()
+	DPrintf("[node %d]: startElection() releases lock %d", rf.me, lockVersion)
 	rf.broadcastRequestVote()
 }
 
 func (rf * Raft) leaderHeartBeatTicker(){
+		heartbeatTimeout := rf.getHeartbeatTimeout()
 
+		for rf.killed() == false {
+			time.Sleep(heartbeatTimeout * time.Millisecond)
 
-	heartbeatTimeout := rf.getHeartbeatTimeout()
-	for rf.killed() == false {
-		rf.mu.Lock()
-		if rf.state == "leader"{
-			rf.mu.Unlock()
-			select {
-			case <-time.After(heartbeatTimeout):
+			rf.mu.Lock()
+			lockVersion := rf.lockVersion
+			DPrintf("[node %d]: leaderHeartBeatTicker() acquires lock %d", rf.me, lockVersion)
+			rf.lockVersion ++
+
+			if rf.state == "leader"{
+				rf.mu.Unlock()
+				DPrintf("[node %d]: leaderHeartBeatTicker() releases lock %d", rf.me, lockVersion)
+				
 				rf.broadcastAppendEntries()
+			} else {
+				rf.mu.Unlock()
+				DPrintf("[node %d]: leaderHeartBeatTicker() releases lock %d", rf.me, lockVersion)
+				break
 			}
-		} else {
-			rf.mu.Unlock()
-			break
+	
 		}
-
-	}
 }
 
 func (rf *Raft) candiateElectionTicker(){
 	for rf.killed() == false {
-		electionTimeout := rf.getElectionTimeout() * time.Millisecond
-		rf.mu.Lock()
-		DPrintf("[node %d]: initialized election out = [%v ms]", rf.me, electionTimeout)
-		rf.mu.Unlock()
-		select {
-		case <-time.After(electionTimeout):
-			{
-				rf.mu.Lock()
-				if rf.state == "leader"{ // if I am leader, don't need to start a new election
-					rf.mu.Unlock()
-					continue
-				} else {
-					duration := time.Since(rf.electionTimeout)
-					rf.mu.Unlock()
-					if duration > electionTimeout { // note that you should only reset hearbeat timeout upon receiving RPC from current leader, not from other peers
-						DPrintf("[node %d]: [%v ms] has passed since the last election > [%v ms]", rf.me, duration, electionTimeout)
-						rf.becomeCandidate()
-						rf.startElection()
-					} else {
-						continue
-					}
-				}
-			}
-		}
-	}
+		nowTime := time.Now()
 
+		electionTimeout := rf.getElectionTimeout() * time.Millisecond
+		DPrintf("[node %d]: initialized election out = [%v]", rf.me, electionTimeout)
+
+		time.Sleep(electionTimeout)
+
+		rf.mu.Lock()
+		lockVersion := rf.lockVersion
+		DPrintf("[node %d]: candiateElectionTicker() acquires lock %d", rf.me, lockVersion)
+		rf.lockVersion ++
+
+		if rf.electionTimeout.Before(nowTime) && rf.state != "leader"{
+			rf.mu.Unlock()
+			DPrintf("[node %d]: candiateElectionTicker() releases lock %d", rf.me, lockVersion)
+
+			DPrintf("[node %d]: [%v ms] election time out", rf.me, electionTimeout)
+			rf.becomeCandidate()
+			rf.startElection()
+		} else {
+			rf.mu.Unlock()
+			DPrintf("[node %d]: candiateElectionTicker() releases lock %d", rf.me, lockVersion)
+		}
+
+		
+	}
 }
+
+
 
 
 //
@@ -612,10 +641,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	go rf.candiateElectionTicker() // check whether the election timeouts and start a new election
 
+	DPrintf("[node %d]: raft %d created", rf.me, rf.me)
 	return rf
 }
 
 func (rf * Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply * AppendEntriesReply) {
+	DPrintf("[node %d]: send a heartbeat to peer %d", rf.me, server)
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
 	if !ok {
@@ -652,24 +683,27 @@ func (rf * Raft) AppendEntries(args *AppendEntriesArgs, reply * AppendEntriesRep
 	defer DPrintf("[node %d]: AppendEntries() releases lock %d", rf.me, lockVersion)
 	defer rf.mu.Unlock()
 
-	if args.Term < rf.currentTerm {
+	if args.Term < rf.currentTerm { // rf.currentTerm, false
 		reply.Success = false
 		reply.Term = rf.currentTerm
-		DPrintf("[node %d]: sends heartbeat ack back to peer %d: [Term=%d, Success=%v]",
-			rf.me, args.LeadId, rf.currentTerm, reply.Success)
-
-	} else if args.Term == rf.currentTerm{
+	} else if args.Term == rf.currentTerm{ // rf.currentTerm=args.Term, false
 		// reset election timeout
 		rf.electionTimeout = time.Now()
+		if rf.state != "follower"{
+			rf.becomeFollower(args.Term)
+		}
+		
 		reply.Success = true
 		reply.Term = rf.currentTerm
-		DPrintf("[node %d]: sends heartbeat ack back to peer %d: [Term=%d, Sucess=%v]",
-			rf.me, args.LeadId,
-			reply.Term, reply.Success)
-	} else {
+		
+	} else { // args.Term, true
 		rf.becomeFollower(args.Term)
+		reply.Success = true
 	}
 
+	DPrintf("[node %d]: sends heartbeat ack back to peer %d: [Term=%d, Sucess=%v]",
+			rf.me, args.LeadId,
+			reply.Term, reply.Success)
 	return
 }
 
