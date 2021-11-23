@@ -487,9 +487,9 @@ func (rf * Raft) broadcastRequestVote(){
 
 	for i:=0; i<n_peers; i+=1 {
 		if i != rf.me{
-			var args = &RequestVoteArgs{rf.currentTerm, rf.me, lastIndex, lastTerm}
+			args := &RequestVoteArgs{rf.currentTerm, rf.me, lastIndex, lastTerm}
 			DPrintf("[node %d]: broadcast RequestVote ...", rf.me)
-			var reply = &RequestVoteReply{}
+			reply := &RequestVoteReply{}
 			// race
 			go rf.sendRequestVote(i, args, reply)
 			// DPrintf("[node %d]: sendRequestVote created a go routine", rf.me)
@@ -511,7 +511,7 @@ func (rf * Raft) broadcastAppendEntries(){
 		if i!= rf.me{
 			args := &AppendEntriesArgs{rf.currentTerm, rf.me, -1,
 				LogEntry{}, []LogEntry{}, rf.commitIndex}
-			reply := &AppendEntriesReply{-1, false}
+			reply := &AppendEntriesReply{}
 			go rf.sendAppendEntries(i, args, reply)
 			// DPrintf("[node %d]: broadcastAppendEntries created a go routine", rf.me)
 		}
