@@ -540,9 +540,9 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			//time.Sleep(5 * time.Second)
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				fmt.Printf("nd %d\n", nd)
-				fmt.Printf("cmd %v\n", cmd)
-				fmt.Printf("cmd1 %v\n", cmd1)
+				//fmt.Printf("nd %d\n", nd)
+				//fmt.Printf("cmd %v\n", cmd)
+				//fmt.Printf("cmd1 %v\n", cmd1)
 
 				//fmt.Printf("command 1%v\n", cfg.rafts[0].logs[1].Command)
 				//fmt.Printf("command 2%v\n", cfg.rafts[1].logs[1].Command)

@@ -269,25 +269,28 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else if args.Term > rf.currentTerm ||
 		(args.Term == rf.currentTerm && rf.votedFor == -1 || rf.votedFor == args.CandidateId) {
 
-		if rf.state == "leader" {
-			rf.becomeFollower(args.Term)
-		} else {
-			rf.currentTerm = args.Term
-		}
-		reply.Term = rf.currentTerm
+		if args.LastLogTerm > rf.getLastTerm() ||
+			(args.LastLogTerm == rf.getLastTerm() && args.LastLogIndex >= rf.getLastIndex()) {
+			if rf.state == "leader" {
+				rf.becomeFollower(args.Term)
+			} else {
+				rf.currentTerm = args.Term
+			}
+			reply.Term = rf.currentTerm
 
-		// if receive a larger term, update currentTerm
-		// check if the candidate's log is at least as up-to-date as receiver's log
-		lastIndex, lastTerm := rf.getLastIndexAndTerm()
-		if rf.ValidateLatest(lastIndex, lastTerm) {
-			reply.VoteGranted = true
-			rf.votedFor = args.CandidateId
+			// if receive a larger term, update currentTerm
+			// check if the candidate's log is at least as up-to-date as receiver's log
+			lastIndex, lastTerm := rf.getLastIndexAndTerm()
+			if rf.ValidateLatest(lastIndex, lastTerm) {
+				reply.VoteGranted = true
+				rf.votedFor = args.CandidateId
 
-			rf.electionTimeout = time.Now()
-			DPrintf("[node %d]: granted vote to node %d", rf.me, args.CandidateId)
-		} else {
-			reply.VoteGranted = false
-			DPrintf("[node %d]: node %d doesn't contain latest LogEntries, reject", rf.me, args.CandidateId)
+				rf.electionTimeout = time.Now()
+				DPrintf("[node %d]: granted vote to node %d", rf.me, args.CandidateId)
+			} else {
+				reply.VoteGranted = false
+				DPrintf("[node %d]: node %d doesn't contain latest LogEntries, reject", rf.me, args.CandidateId)
+			}
 		}
 	} else {
 		DPrintf("[node %d]: already voteFor other peer %d, reject peer %d", rf.me, rf.votedFor, args.CandidateId)
@@ -400,7 +403,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index = rf.lastApplied + 1
 	//time.Sleep(5 * time.Second)
 
-	fmt.Printf("command here %v\n", command)
+	//fmt.Printf("command here %v\n", command)
 	//fmt.Println(term)
 	//fmt.Println(isLeader)
 	if isLeader {
@@ -512,29 +515,30 @@ func (rf *Raft) broadcastAppendEntries(command interface{}) {
 	DPrintf("[node %d]: broadcastAppendEntries() acquires lock %d", rf.me, lockVersion)
 	rf.lockVersion++
 
-	var tmpLogs []LogEntry
 	if command != nil {
 		fmt.Printf("command %v\n", command)
 		rf.logs = append(rf.logs, LogEntry{rf.currentTerm, command})
+		rf.nextIndex[rf.me]++
 		rf.lastApplied++
-		tmpLogs = append(tmpLogs, LogEntry{rf.currentTerm, command})
 		var success_count uint32
 		var wg sync.WaitGroup
 		for i := 0; i < len(rf.peers); i += 1 {
 			//rf.nextIndex = append(rf.nextIndex, rf.commitIndex) // TODO: ?
 			if i != rf.me {
 				wg.Add(1)
-				go rf.sendOneLogEntry(tmpLogs, i, &success_count, &wg)
+				go rf.sendOneLogEntry(command, i, &success_count, &wg)
 				// DPrintf("[node %d]: broadcastAppendEntries created a go routine", rf.me)
 			}
 		}
 		rf.mu.Unlock()
 
 		wg.Wait()
-		fmt.Printf("success count %d\n", success_count)
-		if int(success_count) >= len(rf.peers)/2 {
+		fmt.Printf("success count %d\n", int(success_count))
+		fmt.Printf("limit %f\n", float32(len(rf.peers))/2-1)
+		if float32(success_count) > float32(len(rf.peers))/2-1 {
 			rf.commitIndex++
-		} else if len(rf.logs) > 0 {
+			fmt.Printf("commit index %d\n", rf.commitIndex)
+		} else if len(rf.logs) > 1 {
 			rf.logs = rf.logs[:len(rf.logs)-1]
 			rf.lastApplied--
 		}
@@ -544,7 +548,7 @@ func (rf *Raft) broadcastAppendEntries(command interface{}) {
 		for i := 0; i < len(rf.peers); i += 1 {
 			if i != rf.me {
 				args := &AppendEntriesArgs{rf.currentTerm, rf.me, -1,
-					-1, tmpLogs, rf.commitIndex}
+					-1, []LogEntry{}, rf.commitIndex}
 				reply := &AppendEntriesReply{-1, false}
 				go rf.sendAppendEntries(i, args, reply)
 				// DPrintf("[node %d]: broadcastAppendEntries created a go routine", rf.me)
@@ -553,24 +557,35 @@ func (rf *Raft) broadcastAppendEntries(command interface{}) {
 	}
 }
 
-func (rf *Raft) sendOneLogEntry(tmpLogs []LogEntry, i int, success_count_pt *uint32, wg *sync.WaitGroup) {
-	rf.mu.Lock()
-	rf.lockVersion++
-
-	prevLogIndex := rf.nextIndex[i] - 1
+func (rf *Raft) sendOneLogEntry(command interface{}, i int, success_count_pt *uint32, wg *sync.WaitGroup) {
+	var tmpLogs []LogEntry
+	tmpLogs = append(tmpLogs, LogEntry{rf.currentTerm, command})
+	prevLogIndex := rf.nextIndex[i] - 1 // the index to add entries in the follower's log
 	prevLogTerm := rf.logs[prevLogIndex].Term
 
-	args := &AppendEntriesArgs{rf.currentTerm, rf.me, prevLogIndex,
-		prevLogTerm, tmpLogs, rf.commitIndex}
-	reply := &AppendEntriesReply{-1, false}
-	rf.mu.Unlock()
-	rf.sendAppendEntries(i, args, reply)
-	//fmt.Printf("after send peer %d\n", i)
-	if reply.Success {
-		atomic.AddUint32(success_count_pt, 1)
+	logIndexToAdd := rf.lastApplied // the index of entry in this leader to be sent to follower
+	for {
 		rf.mu.Lock()
-		rf.nextIndex[i]++
+		rf.lockVersion++
+
+		args := &AppendEntriesArgs{rf.currentTerm, rf.me, prevLogIndex,
+			prevLogTerm, tmpLogs, rf.commitIndex}
+		reply := &AppendEntriesReply{-1, false}
 		rf.mu.Unlock()
+		rf.sendAppendEntries(i, args, reply)
+		//fmt.Printf("after send peer %d\n", i)
+		if reply.Success {
+			atomic.AddUint32(success_count_pt, 1)
+			rf.mu.Lock()
+			rf.nextIndex[i]++
+			rf.mu.Unlock()
+			break
+		} else {
+			logIndexToAdd--
+			rf.mu.Lock()
+			tmpLogs = append([]LogEntry{rf.logs[logIndexToAdd]}, tmpLogs...)
+			rf.mu.Unlock()
+		}
 	}
 	wg.Done()
 }
@@ -738,6 +753,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer DPrintf("[node %d]: AppendEntries() releases lock %d", rf.me, lockVersion)
 	defer rf.mu.Unlock()
 
+	rf.commitIndex = args.LeaderCommit
 	if args.Term < rf.currentTerm { // rf.currentTerm, false
 		reply.Success = false
 		reply.Term = rf.currentTerm
@@ -745,48 +761,38 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	} else if args.Term == rf.currentTerm { // rf.currentTerm=args.Term, false
 		// reset election timeout
 		rf.electionTimeout = time.Now()
-		if rf.state != "follower" {
-			rf.becomeFollower(args.Term)
-		}
 
 		if rf.lastApplied > args.PrevLogIndex {
 			reply.Success = false
 		} else {
 			reply.Success = true
+			if args.Entries == nil {
+				if rf.state != "follower" {
+					rf.becomeFollower(args.Term)
+				}
+			} else if rf.lastApplied == args.PrevLogIndex {
+				rf.logs = append(rf.logs, args.Entries...)
+				//rf.commitIndex = rf.lastApplied
+				rf.lastApplied += len(args.Entries)
+			} else {
+				reply.Success = false
+			}
 		}
 		reply.Term = rf.currentTerm
 
 	} else { // args.Term, true
-		rf.becomeFollower(args.Term)
-		reply.Success = true
-	}
-
-	//fmt.Printf("before process log")
-	if args.Entries != nil {
-		//fmt.Printf("primary index %d\n", args.PrevLogIndex)
-		//fmt.Printf("second index %d\n", rf.lastApplied)
-		if rf.lastApplied == args.PrevLogIndex {
-			if rf.lastApplied == 0 { // Initial log entry at index 1
-				rf.logs = append(rf.logs, args.Entries...)
-				rf.lastApplied += len(args.Entries)
-			} else if rf.logs[rf.lastApplied].Term == args.PrevLogTerm { // Not initial, but prev entry agrees on term
-				rf.logs = append(rf.logs, args.Entries...)
-				rf.commitIndex = rf.lastApplied
-				rf.lastApplied += len(args.Entries)
-			} else if rf.logs[rf.lastApplied].Term < args.PrevLogTerm {
-				rf.logs = rf.logs[:rf.lastApplied]
-				rf.lastApplied -= 1
-			}
-		} else {
-			if rf.lastApplied >= args.PrevLogIndex && rf.currentTerm < args.Term {
-				//fmt.Printf("primary prev term %d\n", args.PrevLogTerm)
-				//fmt.Printf("second prev term %v\n", rf.logs)
-				rf.logs = rf.logs[:args.PrevLogIndex+1]
-				rf.lastApplied = args.PrevLogIndex
+		if args.Entries != nil {
+			if rf.lastApplied >= args.PrevLogIndex {
+				rf.logs = rf.logs[:args.PrevLogIndex]
+				rf.lastApplied = args.PrevLogIndex - 1
 			}
 			reply.Success = false
 			reply.Term = rf.currentTerm
-			return
+		} else {
+			if rf.state != "follower" {
+				rf.becomeFollower(args.Term)
+			}
+			reply.Success = true
 		}
 	}
 
