@@ -8,19 +8,22 @@ package raft
 // test with the original before submitting.
 //
 
-import "kvstore/labgob"
-import "kvstore/labrpc"
-import "bytes"
-import "log"
-import "sync"
-import "testing"
-import "runtime"
-import "math/rand"
-import crand "crypto/rand"
-import "math/big"
-import "encoding/base64"
-import "time"
-import "fmt"
+import (
+	"bytes"
+	"kvstore/labgob"
+	"kvstore/labrpc"
+	"log"
+	"math/rand"
+	"runtime"
+	"sync"
+	"testing"
+
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"time"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -439,8 +442,18 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		}
 
 		cfg.mu.Lock()
-		cmd1, ok := cfg.logs[i][index]
+		// TODO : ?
+		//cmd1, ok := cfg.logs[i][index]
+		ok := len(cfg.rafts[i].logs) > index
+		var cmd1 interface{}
+		if ok {
+			cmd1 = cfg.rafts[i].logs[index].Command
+		} else {
+			cmd1 = cfg.rafts[i].logs[0].Command
+		}
 		cfg.mu.Unlock()
+
+		//fmt.Printf("%v %v", cmd1, ok)
 
 		if ok {
 			if count > 0 && cmd != cmd1 {
@@ -524,8 +537,17 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			// somebody claimed to be the leader and to have
 			// submitted our Command; wait a while for agreement.
 			t1 := time.Now()
+			//time.Sleep(5 * time.Second)
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				//fmt.Printf("nd %d\n", nd)
+				//fmt.Printf("cmd %v\n", cmd)
+				//fmt.Printf("cmd1 %v\n", cmd1)
+
+				//fmt.Printf("command 1%v\n", cfg.rafts[0].logs[1].Command)
+				//fmt.Printf("command 2%v\n", cfg.rafts[1].logs[1].Command)
+				//fmt.Printf("command 3%v\n", cfg.rafts[2].logs[1].Command)
+
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd1 == cmd {

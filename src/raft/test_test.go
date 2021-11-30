@@ -8,12 +8,14 @@ package raft
 // test with the original before submitting.
 //
 
-import "testing"
-import "fmt"
-import "time"
-import "math/rand"
-import "sync/atomic"
-import "sync"
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -25,7 +27,6 @@ func TestInitialElection2A(t *testing.T) {
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2A): initial election")
-
 	// is a leader elected?
 	cfg.checkOneLeader()
 
@@ -74,13 +75,13 @@ func TestReElection2A(t *testing.T) {
 	// be elected.
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
-	DPrintf("TestReElection2A: disconnected %d, %d", leader2, (leader2 + 1) % servers)
+	DPrintf("TestReElection2A: disconnected %d, %d", leader2, (leader2+1)%servers)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
 
 	// if a quorum arises, it should elect a leader.
 	cfg.connect((leader2 + 1) % servers)
-	DPrintf("TestReElection2A: reconnected %d", (leader2 + 1) % servers)
+	DPrintf("TestReElection2A: reconnected %d", (leader2+1)%servers)
 	cfg.checkOneLeader()
 
 	// re-join of last node shouldn't prevent leader from existing.
@@ -109,7 +110,7 @@ func TestManyElections2A(t *testing.T) {
 		cfg.disconnect(i1)
 		cfg.disconnect(i2)
 		cfg.disconnect(i3)
-		DPrintf("disconnected %d,%d,%d", i1,i2,i3)
+		DPrintf("disconnected %d,%d,%d", i1, i2, i3)
 
 		// either the current leader should still be alive,
 		// or the remaining four should elect a new one.
@@ -118,7 +119,7 @@ func TestManyElections2A(t *testing.T) {
 		cfg.connect(i1)
 		cfg.connect(i2)
 		cfg.connect(i3)
-		DPrintf("%d,%d,%d reconnected to the network", i1,i2,i3)
+		DPrintf("%d,%d,%d reconnected to the network", i1, i2, i3)
 	}
 
 	cfg.checkOneLeader()
@@ -133,6 +134,7 @@ func TestBasicAgree2B(t *testing.T) {
 
 	cfg.begin("Test (2B): basic agreement")
 
+	//time.Sleep(5 * time.Second)
 	iters := 3
 	for index := 1; index < iters+1; index++ {
 		nd, _ := cfg.nCommitted(index)
