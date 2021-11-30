@@ -27,6 +27,7 @@ func TestInitialElection2A(t *testing.T) {
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2A): initial election")
+
 	// is a leader elected?
 	cfg.checkOneLeader()
 
