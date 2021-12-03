@@ -122,8 +122,8 @@ type Raft struct {
 	electionTimeout time.Time // last event time
 	voteCnt         int
 	majorityCnt     int
-	commitCnt       int
-	lockVersion     int
+	//commitCnt       int
+	lockVersion int
 }
 
 // return currentTerm and whether this server
@@ -406,6 +406,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		index = rf.getLastIndex() + 1
 		rf.logs = append(rf.logs, LogEntry{term, command})
 		rf.nextIndex[rf.me]++
+		rf.matchIndex[rf.me]++
 		//go rf.broadcastAppendEntries(command)
 	}
 
@@ -516,7 +517,7 @@ func (rf *Raft) startElection() {
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.voteCnt = 1
-	rf.commitCnt = 1
+	//rf.commitCnt = 1
 	rf.electionTimeout = time.Now()
 
 	DPrintf("[node %d]: startElection: current Term=%d, votedFor=%d", rf.me, rf.currentTerm, rf.votedFor)
@@ -602,7 +603,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.voteCnt = 0
-	rf.commitCnt = 0
+	//rf.commitCnt = 0
 	rf.logs = append(rf.logs, LogEntry{Term: 0})
 	// currentTerm=0, votedFOr=-1, logs: [{0 <nil>}]
 	//DPrintf("currentTerm=%d, votedFOr=%d, logs: %v", rf.currentTerm, rf.votedFor, rf.logs)
@@ -686,6 +687,18 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 			rf.nextIndex[server] = args.PrevLogIndex + len(args.Entries) + 1
 			rf.matchIndex[server] = rf.nextIndex[server] - 1
 
+			if rf.matchIndex[server] > rf.commitIndex {
+
+				match_count := 0
+				for _, v := range rf.matchIndex {
+					if v >= rf.matchIndex[server] {
+						match_count++
+					}
+				}
+				if match_count >= rf.majorityCnt && rf.logs[rf.matchIndex[server]].Term == rf.currentTerm {
+					rf.commitIndex = rf.matchIndex[server]
+				}
+			}
 		}
 	} else {
 		//fmt.Printf("reply failed\n")

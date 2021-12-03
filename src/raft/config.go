@@ -444,7 +444,8 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		cfg.mu.Lock()
 		// TODO : ?
 		//cmd1, ok := cfg.logs[i][index]
-		ok := len(cfg.rafts[i].logs) > index
+		//ok := len(cfg.rafts[i].logs) > index
+		ok := cfg.rafts[i].commitIndex >= index
 		var cmd1 interface{}
 		if ok {
 			cmd1 = cfg.rafts[i].logs[index].Command
