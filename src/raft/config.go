@@ -444,7 +444,8 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		cfg.mu.Lock()
 		// TODO : ?
 		//cmd1, ok := cfg.logs[i][index]
-		ok := len(cfg.rafts[i].logs) > index
+		//ok := len(cfg.rafts[i].logs) > index
+		ok := cfg.rafts[i].commitIndex >= index
 		var cmd1 interface{}
 		if ok {
 			cmd1 = cfg.rafts[i].logs[index].Command
@@ -540,13 +541,10 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			//time.Sleep(5 * time.Second)
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				/*fmt.Printf("index %d\n", index)
 				fmt.Printf("nd %d\n", nd)
 				fmt.Printf("cmd %v\n", cmd)
-				fmt.Printf("cmd1 %v\n", cmd1)
-
-				//fmt.Printf("command 1%v\n", cfg.rafts[0].logs[1].Command)
-				//fmt.Printf("command 2%v\n", cfg.rafts[1].logs[1].Command)
-				//fmt.Printf("command 3%v\n", cfg.rafts[2].logs[1].Command)
+				fmt.Printf("cmd1 %v\n", cmd1)*/
 
 				if nd > 0 && nd >= expectedServers {
 					// committed
