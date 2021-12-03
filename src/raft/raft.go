@@ -392,22 +392,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	//rf.logs = append(rf.logs, LogEntry{123, 321})
 
 	// Your code here (2B).
-	if rf.state != "leader" {
-		isLeader = false
-	}
-
-	//time.Sleep(5 * time.Second)
-
-	//fmt.Printf("command here %v\n", command)
-	//fmt.Println(term)
-	//fmt.Println(isLeader)
-	if isLeader {
+	if rf.state == "leader" {
+		rf.mu.Lock()
 		term = rf.currentTerm
 		index = rf.getLastIndex() + 1
 		rf.logs = append(rf.logs, LogEntry{term, command})
 		rf.nextIndex[rf.me]++
-		rf.matchIndex[rf.me]++
-		//go rf.broadcastAppendEntries(command)
+		rf.matchIndex[rf.me] = rf.nextIndex[rf.me] - 1
+		rf.mu.Unlock()
 	}
 
 	return index, term, isLeader
@@ -653,10 +645,13 @@ func (rf *Raft) broadcastAppendEntries() {
 				args.Entries = rf.logs[rf.nextIndex[i]:]
 			}
 			args.LeaderCommit = rf.commitIndex
+			rf.mu.Unlock()
 			var reply AppendEntriesReply
 			go rf.sendAppendEntries(i, &args, &reply)
+		} else {
+			rf.mu.Unlock()
 		}
-		rf.mu.Unlock()
+
 	}
 }
 
@@ -683,9 +678,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	if reply.Success {
 		if len(args.Entries) > 0 {
-			//fmt.Printf("len bigger than 0\n")
 			rf.nextIndex[server] = args.PrevLogIndex + len(args.Entries) + 1
 			rf.matchIndex[server] = rf.nextIndex[server] - 1
+
+			//fmt.Printf("node %d: reply success from node %d\n", rf.me, server)
+			//fmt.Printf("matchIndex %v\n", rf.matchIndex)
 
 			if rf.matchIndex[server] > rf.commitIndex {
 
@@ -746,7 +743,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Term = rf.currentTerm
 	if args.PrevLogIndex <= rf.getLastIndex() {
 		if args.PrevLogIndex == 0 || rf.logs[args.PrevLogIndex].Term == args.PrevLogTerm {
+			//fmt.Printf("Node %d, Appending entries %v\n", rf.me, args.Entries)
 			rf.logs = append(rf.logs[:args.PrevLogIndex+1], args.Entries...)
+			//fmt.Printf("Node %d, After log append %v\n", rf.me, rf.logs)
 			if args.LeaderCommit > rf.commitIndex {
 				if args.LeaderCommit > rf.getLastIndex() {
 					rf.commitIndex = rf.getLastIndex()

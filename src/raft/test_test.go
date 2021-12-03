@@ -373,7 +373,7 @@ loop:
 	cfg.end()
 }
 
-/*func TestRejoin2B(t *testing.T) {
+func TestRejoin2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
@@ -384,6 +384,7 @@ loop:
 
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
+	fmt.Printf("first disconnected leader %d \n", leader1)
 	cfg.disconnect(leader1)
 
 	// make old leader try to agree on some Entries
@@ -396,6 +397,7 @@ loop:
 
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
+	fmt.Printf("second disconnected leader %d \n", leader2)
 	cfg.disconnect(leader2)
 
 	// old leader connected again
@@ -481,7 +483,7 @@ func TestBackup2B(t *testing.T) {
 	cfg.one(rand.Int(), servers, true)
 
 	cfg.end()
-}*/
+}
 
 func TestCount2B(t *testing.T) {
 	servers := 3
