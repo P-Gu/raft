@@ -636,7 +636,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) broadcastAppendEntries() {
 	//lockVersion := rf.lockVersion
-	fmt.Printf("node %d broadcast append entries\n", rf.me)
+	//fmt.Printf("node %d broadcast append entries\n", rf.me)
 
 	rf.lockVersion++
 
@@ -661,7 +661,7 @@ func (rf *Raft) broadcastAppendEntries() {
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	DPrintf("[node %d]: send a heartbeat to peer %d", rf.me, server)
-	fmt.Printf("tmp log node %d to node %d before send %v\n", rf.me, server, args.Entries)
+	//fmt.Printf("tmp log node %d to node %d before send %v\n", rf.me, server, args.Entries)
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	//fmt.Printf("after rpc\n")
@@ -696,7 +696,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	//DPrintf("[node %d]: receives heartbeat from peer %d: [Term=%d]", rf.me, args.LeadId, args.Term)
 	//DPrintf("[node %d]: Current term %d", rf.me, rf.currentTerm)
-	fmt.Printf("node %d from node %d, tmp log AFTER send %v\n", rf.me, args.LeadId, args.Entries)
+	//fmt.Printf("node %d from node %d, tmp log AFTER send %v\n", rf.me, args.LeadId, args.Entries)
 	//fmt.Printf("prev log index %d and prev log term %d\n", args.PrevLogIndex, args.PrevLogTerm)
 	//fmt.Printf("args term %d and current term %d\n", args.Term, rf.currentTerm)
 
