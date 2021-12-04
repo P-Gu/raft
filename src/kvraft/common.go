@@ -28,6 +28,7 @@ type GetArgs struct {
 }
 
 type GetReply struct {
-	Err   Err
-	Value string
+	Error    Err
+	Value    string
+	IsLeader bool
 }

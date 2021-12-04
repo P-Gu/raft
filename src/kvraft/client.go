@@ -1,13 +1,18 @@
 package kvraft
 
-import "kvstore/labrpc"
-import "crypto/rand"
-import "math/big"
-
+import (
+	"crypto/rand"
+	"kvstore/labrpc"
+	"math/big"
+	"strconv"
+	"sync"
+)
 
 type Clerk struct {
+	mu      sync.Mutex
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+	leaderID int
 }
 
 func nrand() int64 {
@@ -21,6 +26,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+	ck.leaderID = -1
 	return ck
 }
 
@@ -37,6 +43,29 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
+	args := GetArgs{key}
+	reply := GetReply{}
+	ok := ck.servers[ck.leaderID].Call("KVServer.Get", &args, &reply)
+	if !ok {
+		return "error connecting"
+	}
+	if reply.Error != "" {
+		return string(reply.Error)
+	}
+	for !reply.IsLeader {
+		ck.leaderID, _ = strconv.Atoi(reply.Value)
+		ok = ck.servers[ck.leaderID].Call("KVServer.Get", &args, &reply)
+		if !ok {
+			return "error connecting"
+		}
+		if reply.Error != "" {
+			return string(reply.Error)
+		}
+	}
+
+	// get the reply from leader server
+	ck.mu.Lock()
+	defer ck.mu.Unlock()
 
 	// You will have to modify this function.
 	return ""

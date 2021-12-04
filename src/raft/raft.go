@@ -120,6 +120,11 @@ type Raft struct {
 	electionTimeout time.Time // last event time
 	voteCnt         int
 	majorityCnt     int
+	otherLeader     int // last leader ID known by append entries RPC
+}
+
+func (rf *Raft) ReturnOtherLeader() int {
+	return rf.otherLeader
 }
 
 // return currentTerm and whether this server
@@ -535,6 +540,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.state = "follower"
 	rf.applyCh = applyCh
 	rf.electionTimeout = time.Now()
+	rf.otherLeader = 0
 
 	numPeers := len(rf.peers)
 	if numPeers%2 == 0 {
@@ -641,6 +647,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 	rf.electionTimeout = time.Now()
+	rf.otherLeader = args.LeadId
 	if args.Term >= rf.currentTerm { // rf.currentTerm=args.Term, false
 		rf.becomeFollower(args.Term)
 
@@ -658,6 +665,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				} else {
 					rf.commitIndex = args.LeaderCommit
 				}
+				go rf.UpdateLog()
 			}
 		} else {
 			rf.logs = rf.logs[:args.PrevLogIndex]

@@ -5,6 +5,7 @@ import (
 	"kvstore/labrpc"
 	"kvstore/raft"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -18,11 +19,15 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Command   string
+	Key       string
+	Value     string
+	ClerkID   int
+	RequestID int
 }
 
 type KVServer struct {
@@ -35,11 +40,20 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	store map[string]string
 }
-
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	_, isLeader := kv.rf.GetState()
+	if !isLeader {
+		reply.IsLeader = false
+		reply.Value = strconv.FormatInt(int64(kv.rf.ReturnOtherLeader()), 10)
+		return
+	}
+
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
