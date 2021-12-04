@@ -86,10 +86,10 @@ type ApplyMsg struct {
 	CommandIndex int
 
 	//// For 2D:
-	SnapshotValid bool
+	/*SnapshotValid bool
 	Snapshot      []byte
 	SnapshotTerm  int
-	SnapshotIndex int
+	SnapshotIndex int*/
 }
 
 //
@@ -605,12 +605,25 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 				}
 				if match_count >= rf.majorityCnt && rf.logs[rf.matchIndex[server]].Term == rf.currentTerm {
 					rf.commitIndex = rf.matchIndex[server]
+
+					go rf.UpdateLog()
 				}
 			}
 		}
 	} else {
 		rf.nextIndex[server]--
 	}
+}
+
+func (rf *Raft) UpdateLog() {
+	rf.mu.Lock()
+	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+		msg := ApplyMsg{false, rf.logs[i].Command, i}
+
+		rf.applyCh <- msg
+	}
+	rf.lastApplied = rf.commitIndex
+	rf.mu.Unlock()
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
