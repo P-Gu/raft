@@ -541,10 +541,6 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			//time.Sleep(5 * time.Second)
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				/*fmt.Printf("index %d\n", index)
-				fmt.Printf("nd %d\n", nd)
-				fmt.Printf("cmd %v\n", cmd)
-				fmt.Printf("cmd1 %v\n", cmd1)*/
 
 				if nd > 0 && nd >= expectedServers {
 					// committed
