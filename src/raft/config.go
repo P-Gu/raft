@@ -9,8 +9,6 @@ package raft
 //
 
 import (
-	"bytes"
-	"kvstore/labgob"
 	"kvstore/labrpc"
 	"log"
 	"math/rand"
@@ -87,9 +85,9 @@ func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 	cfg.net.LongDelays(true)
 
 	applier := cfg.applier
-	if snapshot {
+	/*if snapshot {
 		applier = cfg.applierSnap
-	}
+	}*/
 	// create a full set of Rafts.
 	for i := 0; i < cfg.n; i++ {
 		cfg.logs[i] = map[int]interface{}{}
@@ -181,7 +179,7 @@ func (cfg *config) applier(i int, applyCh chan ApplyMsg) {
 const SnapShotInterval = 10
 
 // periodically snapshot raft state
-func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
+/*func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 	lastApplied := 0
 	for m := range applyCh {
 		if m.SnapshotValid {
@@ -231,7 +229,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 
 		}
 	}
-}
+}*/
 
 //
 // start or re-start a Raft.

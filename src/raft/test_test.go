@@ -1065,7 +1065,8 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			leader1 = cfg.checkOneLeader()
 		}
 		if crash {
-			cfg.start1(victim, cfg.applierSnap)
+			fmt.Println("crash happened")
+			//cfg.start1(victim, cfg.applierSnap)
 			cfg.connect(victim)
 			cfg.one(rand.Int(), servers, true)
 			leader1 = cfg.checkOneLeader()
