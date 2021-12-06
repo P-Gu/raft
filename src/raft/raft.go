@@ -662,6 +662,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				} else {
 					rf.commitIndex = args.LeaderCommit
 				}
+				go rf.UpdateLog()
 			}
 		} else {
 			rf.logs = rf.logs[:args.PrevLogIndex]

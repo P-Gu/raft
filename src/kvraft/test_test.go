@@ -416,6 +416,50 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	cfg.end()
 }
 
+func PerfTestClient(waitCh chan bool, ck * Clerk, numOps int){
+
+	for i := 0; i < numOps; i++ {
+		ck.Append("x", "x 0 "+strconv.Itoa(i)+" y")
+	}
+
+	waitCh <- true
+}
+
+// author: Jian
+func TestPerformance(t *testing.T){
+	const nservers = 3
+	const numOps = 10
+	const nclients = 3
+	cfg := make_config(t, nservers, false, -1)
+	defer cfg.cleanup()
+
+	// create client stubs
+	var cks [nclients]*Clerk
+	for i:=0; i<nclients; i+=1{
+		ck := cfg.makeClient(cfg.All())
+		cks[i] = ck
+	}
+
+	// main thread waits on these channels until client returns
+	waitChs := make([]chan bool, nclients)
+	start := time.Now()
+	for i := 0; i < nclients; i++ {
+		waitChs[i] = make(chan bool)
+		go PerfTestClient(waitChs[i], cks[i], numOps)
+	}
+
+	// wait until all the clients completes
+	for cli := 0; cli < nclients; cli++ {
+		ok := <-waitChs[cli]
+		if !ok{
+			panic("Client fails")
+		}
+	}
+
+	dur := time.Since(start)
+	fmt.Printf("Executed %d PutAppend ops consumes %v\n", nclients*numOps, dur)
+}
+
 func TestBasic3A(t *testing.T) {
 	// Test: one client (3A) ...
 	GenericTest(t, "3A", 1, 5, false, false, false, -1, false)
@@ -550,167 +594,4 @@ func TestConcurrent3A(t *testing.T) {
 //	GenericTest(t, "3A", 1, 5, false, false, true, -1, false)
 //}
 //
-//func TestManyPartitionsManyClients3A(t *testing.T) {
-//	// Test: partitions, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, false, false, true, -1, false)
-//}
-//
-//func TestPersistOneClient3A(t *testing.T) {
-//	// Test: restarts, one client (3A) ...
-//	GenericTest(t, "3A", 1, 5, false, true, false, -1, false)
-//}
-//
-//func TestPersistConcurrent3A(t *testing.T) {
-//	// Test: restarts, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, false, true, false, -1, false)
-//}
-//
-//func TestPersistConcurrentUnreliable3A(t *testing.T) {
-//	// Test: unreliable net, restarts, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, true, true, false, -1, false)
-//}
-//
-//func TestPersistPartition3A(t *testing.T) {
-//	// Test: restarts, partitions, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, false, true, true, -1, false)
-//}
-//
-//func TestPersistPartitionUnreliable3A(t *testing.T) {
-//	// Test: unreliable net, restarts, partitions, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, true, true, true, -1, false)
-//}
-//
-//func TestPersistPartitionUnreliableLinearizable3A(t *testing.T) {
-//	// Test: unreliable net, restarts, partitions, random keys, many clients (3A) ...
-//	GenericTest(t, "3A", 15, 7, true, true, true, -1, true)
-//}
-//
-////
-//// if one server falls behind, then rejoins, does it
-//// recover by using the InstallSnapshot RPC?
-//// also checks that majority discards committed log entries
-//// even if minority doesn't respond.
-////
-//func TestSnapshotRPC3B(t *testing.T) {
-//	const nservers = 3
-//	maxraftstate := 1000
-//	cfg := make_config(t, nservers, false, maxraftstate)
-//	defer cfg.cleanup()
-//
-//	ck := cfg.makeClient(cfg.All())
-//
-//	cfg.begin("Test: InstallSnapshot RPC (3B)")
-//
-//	Put(cfg, ck, "a", "A", nil, -1)
-//	check(cfg, t, ck, "a", "A")
-//
-//	// a bunch of puts into the majority partition.
-//	cfg.partition([]int{0, 1}, []int{2})
-//	{
-//		ck1 := cfg.makeClient([]int{0, 1})
-//		for i := 0; i < 50; i++ {
-//			Put(cfg, ck1, strconv.Itoa(i), strconv.Itoa(i), nil, -1)
-//		}
-//		time.Sleep(electionTimeout)
-//		Put(cfg, ck1, "b", "B", nil, -1)
-//	}
-//
-//	// check that the majority partition has thrown away
-//	// most of its log entries.
-//	sz := cfg.LogSize()
-//	if sz > 8*maxraftstate {
-//		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
-//	}
-//
-//	// now make group that requires participation of
-//	// lagging server, so that it has to catch up.
-//	cfg.partition([]int{0, 2}, []int{1})
-//	{
-//		ck1 := cfg.makeClient([]int{0, 2})
-//		Put(cfg, ck1, "c", "C", nil, -1)
-//		Put(cfg, ck1, "d", "D", nil, -1)
-//		check(cfg, t, ck1, "a", "A")
-//		check(cfg, t, ck1, "b", "B")
-//		check(cfg, t, ck1, "1", "1")
-//		check(cfg, t, ck1, "49", "49")
-//	}
-//
-//	// now everybody
-//	cfg.partition([]int{0, 1, 2}, []int{})
-//
-//	Put(cfg, ck, "e", "E", nil, -1)
-//	check(cfg, t, ck, "c", "C")
-//	check(cfg, t, ck, "e", "E")
-//	check(cfg, t, ck, "1", "1")
-//
-//	cfg.end()
-//}
-//
-//// are the snapshots not too huge? 500 bytes is a generous bound for the
-//// operations we're doing here.
-//func TestSnapshotSize3B(t *testing.T) {
-//	const nservers = 3
-//	maxraftstate := 1000
-//	maxsnapshotstate := 500
-//	cfg := make_config(t, nservers, false, maxraftstate)
-//	defer cfg.cleanup()
-//
-//	ck := cfg.makeClient(cfg.All())
-//
-//	cfg.begin("Test: snapshot size is reasonable (3B)")
-//
-//	for i := 0; i < 200; i++ {
-//		Put(cfg, ck, "x", "0", nil, -1)
-//		check(cfg, t, ck, "x", "0")
-//		Put(cfg, ck, "x", "1", nil, -1)
-//		check(cfg, t, ck, "x", "1")
-//	}
-//
-//	// check that servers have thrown away most of their log entries
-//	sz := cfg.LogSize()
-//	if sz > 8*maxraftstate {
-//		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
-//	}
-//
-//	// check that the snapshots are not unreasonably large
-//	ssz := cfg.SnapshotSize()
-//	if ssz > maxsnapshotstate {
-//		t.Fatalf("snapshot too large (%v > %v)", ssz, maxsnapshotstate)
-//	}
-//
-//	cfg.end()
-//}
-//
-//func TestSpeed3B(t *testing.T) {
-//	GenericTestSpeed(t, "3B", 1000)
-//}
-//
-//func TestSnapshotRecover3B(t *testing.T) {
-//	// Test: restarts, snapshots, one client (3B) ...
-//	GenericTest(t, "3B", 1, 5, false, true, false, 1000, false)
-//}
-//
-//func TestSnapshotRecoverManyClients3B(t *testing.T) {
-//	// Test: restarts, snapshots, many clients (3B) ...
-//	GenericTest(t, "3B", 20, 5, false, true, false, 1000, false)
-//}
-//
-//func TestSnapshotUnreliable3B(t *testing.T) {
-//	// Test: unreliable net, snapshots, many clients (3B) ...
-//	GenericTest(t, "3B", 5, 5, true, false, false, 1000, false)
-//}
-//
-//func TestSnapshotUnreliableRecover3B(t *testing.T) {
-//	// Test: unreliable net, restarts, snapshots, many clients (3B) ...
-//	GenericTest(t, "3B", 5, 5, true, true, false, 1000, false)
-//}
-//
-//func TestSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
-//	// Test: unreliable net, restarts, partitions, snapshots, many clients (3B) ...
-//	GenericTest(t, "3B", 5, 5, true, true, true, 1000, false)
-//}
-//
-//func TestSnapshotUnreliableRecoverConcurrentPartitionLinearizable3B(t *testing.T) {
-//	// Test: unreliable net, restarts, partitions, snapshots, random keys, many clients (3B) ...
-//	GenericTest(t, "3B", 15, 7, true, true, true, 1000, true)
-//}
+
