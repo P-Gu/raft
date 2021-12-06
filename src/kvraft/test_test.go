@@ -1,16 +1,18 @@
 package kvraft
 
-import "kvstore/porcupine"
-import "kvstore/models"
-import "testing"
-import "strconv"
-import "time"
-import "math/rand"
-import "strings"
-import "sync"
-import "sync/atomic"
-import "fmt"
-import "io/ioutil"
+import (
+	"fmt"
+	"io/ioutil"
+	"kvstore/models"
+	"kvstore/porcupine"
+	"math/rand"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -416,7 +418,7 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	cfg.end()
 }
 
-func PerfTestClient(waitCh chan bool, ck * Clerk, numOps int){
+func PerfTestClient(waitCh chan bool, ck *Clerk, numOps int) {
 
 	for i := 0; i < numOps; i++ {
 		ck.Append("x", "x 0 "+strconv.Itoa(i)+" y")
@@ -426,7 +428,7 @@ func PerfTestClient(waitCh chan bool, ck * Clerk, numOps int){
 }
 
 // author: Jian
-func TestPerformance(t *testing.T){
+func TestPerformance3A(t *testing.T) {
 	const nservers = 3
 	const numOps = 10
 	const nclients = 3
@@ -435,7 +437,7 @@ func TestPerformance(t *testing.T){
 
 	// create client stubs
 	var cks [nclients]*Clerk
-	for i:=0; i<nclients; i+=1{
+	for i := 0; i < nclients; i += 1 {
 		ck := cfg.makeClient(cfg.All())
 		cks[i] = ck
 	}
@@ -451,7 +453,7 @@ func TestPerformance(t *testing.T){
 	// wait until all the clients completes
 	for cli := 0; cli < nclients; cli++ {
 		ok := <-waitChs[cli]
-		if !ok{
+		if !ok {
 			panic("Client fails")
 		}
 	}
@@ -465,133 +467,131 @@ func TestBasic3A(t *testing.T) {
 	GenericTest(t, "3A", 1, 5, false, false, false, -1, false)
 }
 
-//func TestSpeed3A(t *testing.T) {
-//	GenericTestSpeed(t, "3A", -1)
-//}
+// func TestSpeed3A(t *testing.T) {
+// 	GenericTestSpeed(t, "3A", -1)
+// }
 
 func TestConcurrent3A(t *testing.T) {
 	// Test: many clients (3A) ...
 	GenericTest(t, "3A", 5, 5, false, false, false, -1, false)
 }
-//
-//func TestUnreliable3A(t *testing.T) {
-//	// Test: unreliable net, many clients (3A) ...
-//	GenericTest(t, "3A", 5, 5, true, false, false, -1, false)
-//}
-//
-//func TestUnreliableOneKey3A(t *testing.T) {
-//	const nservers = 3
-//	cfg := make_config(t, nservers, true, -1)
-//	defer cfg.cleanup()
-//
-//	ck := cfg.makeClient(cfg.All())
-//
-//	cfg.begin("Test: concurrent append to same key, unreliable (3A)")
-//
-//	Put(cfg, ck, "k", "", nil, -1)
-//
-//	const nclient = 5
-//	const upto = 10
-//	spawn_clients_and_wait(t, cfg, nclient, func(me int, myck *Clerk, t *testing.T) {
-//		n := 0
-//		for n < upto {
-//			Append(cfg, myck, "k", "x "+strconv.Itoa(me)+" "+strconv.Itoa(n)+" y", nil, -1)
-//			n++
-//		}
-//	})
-//
-//	var counts []int
-//	for i := 0; i < nclient; i++ {
-//		counts = append(counts, upto)
-//	}
-//
-//	vx := Get(cfg, ck, "k", nil, -1)
-//	checkConcurrentAppends(t, vx, counts)
-//
-//	cfg.end()
-//}
-//
-//// Submit a request in the minority partition and check that the requests
-//// doesn't go through until the partition heals.  The leader in the original
-//// network ends up in the minority partition.
-//func TestOnePartition3A(t *testing.T) {
-//	const nservers = 5
-//	cfg := make_config(t, nservers, false, -1)
-//	defer cfg.cleanup()
-//	ck := cfg.makeClient(cfg.All())
-//
-//	Put(cfg, ck, "1", "13", nil, -1)
-//
-//	cfg.begin("Test: progress in majority (3A)")
-//
-//	p1, p2 := cfg.make_partition()
-//	cfg.partition(p1, p2)
-//
-//	ckp1 := cfg.makeClient(p1)  // connect ckp1 to p1
-//	ckp2a := cfg.makeClient(p2) // connect ckp2a to p2
-//	ckp2b := cfg.makeClient(p2) // connect ckp2b to p2
-//
-//	Put(cfg, ckp1, "1", "14", nil, -1)
-//	check(cfg, t, ckp1, "1", "14")
-//
-//	cfg.end()
-//
-//	done0 := make(chan bool)
-//	done1 := make(chan bool)
-//
-//	cfg.begin("Test: no progress in minority (3A)")
-//	go func() {
-//		Put(cfg, ckp2a, "1", "15", nil, -1)
-//		done0 <- true
-//	}()
-//	go func() {
-//		Get(cfg, ckp2b, "1", nil, -1) // different clerk in p2
-//		done1 <- true
-//	}()
-//
-//	select {
-//	case <-done0:
-//		t.Fatalf("Put in minority completed")
-//	case <-done1:
-//		t.Fatalf("Get in minority completed")
-//	case <-time.After(time.Second):
-//	}
-//
-//	check(cfg, t, ckp1, "1", "14")
-//	Put(cfg, ckp1, "1", "16", nil, -1)
-//	check(cfg, t, ckp1, "1", "16")
-//
-//	cfg.end()
-//
-//	cfg.begin("Test: completion after heal (3A)")
-//
-//	cfg.ConnectAll()
-//	cfg.ConnectClient(ckp2a, cfg.All())
-//	cfg.ConnectClient(ckp2b, cfg.All())
-//
-//	time.Sleep(electionTimeout)
-//
-//	select {
-//	case <-done0:
-//	case <-time.After(30 * 100 * time.Millisecond):
-//		t.Fatalf("Put did not complete")
-//	}
-//
-//	select {
-//	case <-done1:
-//	case <-time.After(30 * 100 * time.Millisecond):
-//		t.Fatalf("Get did not complete")
-//	default:
-//	}
-//
-//	check(cfg, t, ck, "1", "15")
-//
-//	cfg.end()
-//}
-//
-//func TestManyPartitionsOneClient3A(t *testing.T) {
-//	// Test: partitions, one client (3A) ...
-//	GenericTest(t, "3A", 1, 5, false, false, true, -1, false)
-//}
-//
 
+func TestUnreliable3A(t *testing.T) {
+	// Test: unreliable net, many clients (3A) ...
+	GenericTest(t, "3A", 5, 5, true, false, false, -1, false)
+}
+
+func TestUnreliableOneKey3A(t *testing.T) {
+	const nservers = 3
+	cfg := make_config(t, nservers, true, -1)
+	defer cfg.cleanup()
+
+	ck := cfg.makeClient(cfg.All())
+
+	cfg.begin("Test: concurrent append to same key, unreliable (3A)")
+
+	Put(cfg, ck, "k", "", nil, -1)
+
+	const nclient = 5
+	const upto = 10
+	spawn_clients_and_wait(t, cfg, nclient, func(me int, myck *Clerk, t *testing.T) {
+		n := 0
+		for n < upto {
+			Append(cfg, myck, "k", "x "+strconv.Itoa(me)+" "+strconv.Itoa(n)+" y", nil, -1)
+			n++
+		}
+	})
+
+	var counts []int
+	for i := 0; i < nclient; i++ {
+		counts = append(counts, upto)
+	}
+
+	vx := Get(cfg, ck, "k", nil, -1)
+	checkConcurrentAppends(t, vx, counts)
+
+	cfg.end()
+}
+
+// Submit a request in the minority partition and check that the requests
+// doesn't go through until the partition heals.  The leader in the original
+// network ends up in the minority partition.
+func TestOnePartition3A(t *testing.T) {
+	const nservers = 5
+	cfg := make_config(t, nservers, false, -1)
+	defer cfg.cleanup()
+	ck := cfg.makeClient(cfg.All())
+
+	Put(cfg, ck, "1", "13", nil, -1)
+
+	cfg.begin("Test: progress in majority (3A)")
+
+	p1, p2 := cfg.make_partition()
+	cfg.partition(p1, p2)
+
+	ckp1 := cfg.makeClient(p1)  // connect ckp1 to p1
+	ckp2a := cfg.makeClient(p2) // connect ckp2a to p2
+	ckp2b := cfg.makeClient(p2) // connect ckp2b to p2
+
+	Put(cfg, ckp1, "1", "14", nil, -1)
+	check(cfg, t, ckp1, "1", "14")
+
+	cfg.end()
+
+	done0 := make(chan bool)
+	done1 := make(chan bool)
+
+	cfg.begin("Test: no progress in minority (3A)")
+	go func() {
+		Put(cfg, ckp2a, "1", "15", nil, -1)
+		done0 <- true
+	}()
+	go func() {
+		Get(cfg, ckp2b, "1", nil, -1) // different clerk in p2
+		done1 <- true
+	}()
+
+	select {
+	case <-done0:
+		t.Fatalf("Put in minority completed")
+	case <-done1:
+		t.Fatalf("Get in minority completed")
+	case <-time.After(time.Second):
+	}
+
+	check(cfg, t, ckp1, "1", "14")
+	Put(cfg, ckp1, "1", "16", nil, -1)
+	check(cfg, t, ckp1, "1", "16")
+
+	cfg.end()
+
+	cfg.begin("Test: completion after heal (3A)")
+
+	cfg.ConnectAll()
+	cfg.ConnectClient(ckp2a, cfg.All())
+	cfg.ConnectClient(ckp2b, cfg.All())
+
+	time.Sleep(electionTimeout)
+
+	select {
+	case <-done0:
+	case <-time.After(30 * 100 * time.Millisecond):
+		t.Fatalf("Put did not complete")
+	}
+
+	select {
+	case <-done1:
+	case <-time.After(30 * 100 * time.Millisecond):
+		t.Fatalf("Get did not complete")
+	default:
+	}
+
+	check(cfg, t, ck, "1", "15")
+
+	cfg.end()
+}
+
+func TestManyPartitionsOneClient3A(t *testing.T) {
+	// Test: partitions, one client (3A) ...
+	GenericTest(t, "3A", 1, 5, false, false, true, -1, false)
+}
