@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"fmt"
 	"kvstore/labgob"
 	"kvstore/labrpc"
 	"kvstore/raft"
@@ -11,7 +12,7 @@ import (
 )
 
 const Debug = false
-const ConsensusTimeout = 200
+const ConsensusTimeout = 100
 var cmdtype = map[string] int{"Get": 0, "Put": 1, "Append": 2}
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
@@ -43,6 +44,9 @@ type KVServer struct {
 	kvs map[string]string // kv pairs
 	waitApplyCh map[int]chan Op
 	lastRequestId map[int64]int64
+
+	durs []time.Duration
+	timemu sync.Mutex
 }
 
 func(kv* KVServer) isRequestDuplicate(ClientId int64, RequestId int64) bool{
@@ -112,6 +116,22 @@ func (kv* KVServer) ExecuteAppendOp(op Op) {
 	kv.lastRequestId[clientId] = requestId
 }
 
+const TimeDebug = false
+func (kv*KVServer) UpdateDurs(dur time.Duration){
+	if TimeDebug{
+		kv.timemu.Lock()
+		defer kv.timemu.Unlock()
+		kv.durs = append(kv.durs, dur)
+
+		sum := time.Duration(0)
+		for i:=0; i<len(kv.durs);i++{
+			sum += kv.durs[i]
+		}
+		avg := float64(sum.Milliseconds()) / float64(len(kv.durs))
+		fmt.Printf("[server %v]: avg duration=%v\n", kv.me, avg)
+	}
+
+}
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
 	DPrintf("[server %d]: Get: receives a req: [Key=%v, ClientId=%v, RequestId=%v]",
@@ -134,6 +154,8 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	op := Op{args.Key, "", cmdtype["Get"], args.ClientId, args.RequestId}
 	DPrintf("[server %d]: Get: trying to achieve consensus for req: [Key=%v, ClientId=%v, RequestId=%v]",
 		kv.me, args.Key, args.ClientId, args.RequestId)
+
+	time1 := time.Now()
 	raftIndex, _, _ := kv.rf.Start(op)
 
 	kv.mu.Lock()
@@ -146,6 +168,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	select {
 	case <-time.After(ConsensusTimeout * time.Millisecond):
+		dur := time.Since(time1)
+		kv.UpdateDurs(dur)
+
 		if kv.isRequestDuplicate(op.ClientId, op.RequestId) {
 			DPrintf("[server %d]: Get: op [Key=%v, ClientId=%v, RequestId=%v] executed",
 				kv.me, args.Key, args.ClientId, args.RequestId)
@@ -170,6 +195,8 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		return
 	case raftCommittedOp := <-chRaftIndex:
 		{
+			dur := time.Since(time1)
+			kv.UpdateDurs(dur)
 			if raftCommittedOp.ClientId == op.ClientId && raftCommittedOp.RequestId == op.RequestId { // is this condition necessary?
 				DPrintf("[server %d]: Get: op [Key=%v, ClientId=%v, RequestId=%v] executed",
 					kv.me, args.Key, args.ClientId, args.RequestId)
@@ -219,6 +246,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	op := Op{args.Key, args.Value, cmdtype[args.Op], args.ClientId, args.RequestId}
 	DPrintf("[server %d]: PutAppend: leader, trying to achieve consensus for req: [Key=%v, Value=%v, Op=%v, ClientId=%v, RequestId=%v]",
 		kv.me, args.Key, args.Value, args.Op, args.ClientId, args.RequestId)
+	time1 := time.Now()
 	raftIndex, _, _ := kv.rf.Start(op)
 
 	kv.mu.Lock()
@@ -232,6 +260,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// wait on this channel until the Raft notifies that the op can be applied
 	select {
 	case <-time.After(ConsensusTimeout * time.Millisecond):
+		dur := time.Since(time1)
+		kv.UpdateDurs(dur)
+
 		DPrintf("[%d]: consensus timeout", kv.me)
 		// timeouts doesn't mean that the op fails to achieve a consensus, double check here
 		if kv.isRequestDuplicate(op.ClientId, op.RequestId){
@@ -247,6 +278,8 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		}
 
 	case raftCommittedOp := <-chRaftIndex:
+		dur := time.Since(time1)
+		kv.UpdateDurs(dur)
 		DPrintf("[server %d]: PutAppend: op [Key=%v, Value=%v, Op=%v, ClientId=%v, RequestId=%v] returned",
 			kv.me, args.Key, args.Value, args.Op, args.ClientId, args.RequestId)
 		if raftCommittedOp.ClientId == op.ClientId && raftCommittedOp.RequestId == op.RequestId{// necessary?
@@ -365,6 +398,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+
+	//kv.durs = make([]time.Duration)
 
 	// You may need initialization code here.
 	DPrintf("[server %d]: we have %v servers in total", kv.me, len(servers))
