@@ -129,7 +129,6 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 	// Your code here (2A).
 	rf.mu.Lock()
-
 	defer rf.mu.Unlock()
 
 	term = rf.currentTerm
@@ -337,19 +336,24 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	index := -1
 	term := -1
-	isLeader := true
+	isLeader := false
 
+	if rf.killed() {
+		return index, term, isLeader
+	}
 	// Your code here (2B).
 	if rf.state == "leader" {
-		rf.mu.Lock()
+		isLeader = true
 		term = rf.currentTerm
 		index = rf.getLastIndex() + 1
 		rf.logs = append(rf.logs, LogEntry{term, command})
 		rf.nextIndex[rf.me]++
 		rf.matchIndex[rf.me] = rf.nextIndex[rf.me] - 1
-		rf.mu.Unlock()
 	}
 
 	return index, term, isLeader
@@ -618,7 +622,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) UpdateLog() {
 	rf.mu.Lock()
 	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
-		msg := ApplyMsg{false, rf.logs[i].Command, i}
+		msg := ApplyMsg{true, rf.logs[i].Command, i}
 
 		rf.applyCh <- msg
 	}

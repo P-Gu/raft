@@ -439,10 +439,11 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 			cfg.t.Fatal(cfg.applyErr[i])
 		}
 
-		cfg.mu.Lock()
+		//cfg.mu.Lock()
 		// TODO : ?
 		//cmd1, ok := cfg.logs[i][index]
 		//ok := len(cfg.rafts[i].logs) > index
+		cfg.rafts[i].mu.Lock()
 		ok := cfg.rafts[i].commitIndex >= index
 		var cmd1 interface{}
 		if ok {
@@ -450,7 +451,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		} else {
 			cmd1 = cfg.rafts[i].logs[0].Command
 		}
-		cfg.mu.Unlock()
+		cfg.rafts[i].mu.Unlock()
 
 		//fmt.Printf("%v %v", cmd1, ok)
 
