@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -593,7 +592,7 @@ loop:
 	cfg.end()
 }
 
-func TestPersist12C(t *testing.T) {
+/*func TestPersist12C(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
@@ -1094,4 +1093,4 @@ func TestSnapshotInstallCrash2D(t *testing.T) {
 
 func TestSnapshotInstallUnCrash2D(t *testing.T) {
 	snapcommon(t, "Test (2D): install snapshots (unreliable+crash)", false, false, true)
-}
+}*/
