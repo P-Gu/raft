@@ -385,8 +385,9 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 
 // Check that ops are committed fast enough, better than 1 per heartbeat interval
 func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
+	// const nservers = 3
 	const nservers = 3
-	const numOps = 1000
+	const numOps = 300
 	cfg := make_config(t, nservers, false, maxraftstate)
 	defer cfg.cleanup()
 
@@ -418,23 +419,44 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	cfg.end()
 }
 
-func PerfTestClient(waitCh chan bool, ck *Clerk, numOps int) {
+func MergeSlice(s1 []time.Duration, s2 []time.Duration) []time.Duration {
+    slice := make([]time.Duration, len(s1)+len(s2))
+    copy(slice, s1)
+    copy(slice[len(s1):], s2)
+    return slice
+}
+
+func PerfTestClient(waitCh chan bool, ck *Clerk, numOps int, all_durs []time.Duration, tid int) {
+	// my_dur := make([]time.Duration, numOps)
 
 	for i := 0; i < numOps; i++ {
+		start := time.Now()
 		ck.Append("x", "x 0 "+strconv.Itoa(i)+" y")
+		// ck.Get(strconv.Itoa(i % 1000))
+		dur := time.Since(start)
+		// my_dur := append(my_dur, dur)
+		offset := tid * numOps + i
+		all_durs[offset] = dur
 	}
 
+	// all_lock.Lock()
+	// *all_durs = MergeSlice(*all_durs, my_dur)
+	// all_lock.Unlock()
 	waitCh <- true
 }
 
 // author: Jian
-func TestPerformance3A(t *testing.T) {
+func TestPerformance(t *testing.T) {
 	const nservers = 3
-	const numOps = 10
-	const nclients = 3
+	const numOps = 100
+	const nclients = 2
 	cfg := make_config(t, nservers, false, -1)
 	defer cfg.cleanup()
 
+	time.Sleep(5 * time.Second)
+
+	all_durs := make([]time.Duration, numOps*nclients) 
+	// var time_mu sync.Mutex
 	// create client stubs
 	var cks [nclients]*Clerk
 	for i := 0; i < nclients; i += 1 {
@@ -442,12 +464,16 @@ func TestPerformance3A(t *testing.T) {
 		cks[i] = ck
 	}
 
+	// for i:=0;i<1000;i+=1{
+	// 	cks[0].Put(strconv.Itoa(i), "x 0 " + strconv.Itoa(i) + " y")
+	// }
+	
 	// main thread waits on these channels until client returns
 	waitChs := make([]chan bool, nclients)
 	start := time.Now()
 	for i := 0; i < nclients; i++ {
 		waitChs[i] = make(chan bool)
-		go PerfTestClient(waitChs[i], cks[i], numOps)
+		go PerfTestClient(waitChs[i], cks[i], numOps, all_durs, i)
 	}
 
 	// wait until all the clients completes
@@ -459,7 +485,23 @@ func TestPerformance3A(t *testing.T) {
 	}
 
 	dur := time.Since(start)
-	fmt.Printf("Executed %d PutAppend ops consumes %v\n", nclients*numOps, dur)
+	dur_s := float64(dur) / 1000000000.0 // dur in seconds
+	// fmt.Printf("dur=%v, dur_s=%v\n", int64(dur), dur_s)
+	total_num_ops := nclients * numOps
+	tput := float64(total_num_ops) / dur_s
+	fmt.Printf("tput= %v . Executed %d PutAppend ops consumes %v\n", tput, total_num_ops, dur)
+
+	sum := 0.0
+	if len(all_durs) != int(total_num_ops){
+		fmt.Printf("len(all_durs)=%d while total_num_ops=%d", len(all_durs), total_num_ops)
+		panic("Error")
+	}
+	for i :=0;i<total_num_ops;i+=1{
+		sum += float64(all_durs[i])
+	}
+	sum /= 1000000
+	sum /= float64(total_num_ops)
+	fmt.Printf("latency = %v ms\n", sum)
 }
 
 func TestBasic3A(t *testing.T) {
@@ -467,9 +509,9 @@ func TestBasic3A(t *testing.T) {
 	GenericTest(t, "3A", 1, 5, false, false, false, -1, false)
 }
 
-// func TestSpeed3A(t *testing.T) {
-// 	GenericTestSpeed(t, "3A", -1)
-// }
+func TestSpeed3A(t *testing.T) {
+	GenericTestSpeed(t, "3A", -1)
+}
 
 func TestConcurrent3A(t *testing.T) {
 	// Test: many clients (3A) ...
